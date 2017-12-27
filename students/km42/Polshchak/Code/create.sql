@@ -465,6 +465,17 @@ COMMIT;
 
 -- CREATE OR REPLACE PROCEDURE registerGuest(user_row in "User"%)
 CREATE OR REPLACE PACKAGE WORK_PACK IS
+	TYPE EMPS_FILTERED AS OBJECT
+	(email "User".email%TYPE
+	,role_name   "User".role_name_fk%TYPE
+	,first_name "User".first_name%TYPE
+	,second_name "User".second_name%TYPE
+	,last_name "User".last_name%TYPE
+	,user_address "User".user_address%TYPE
+	,phone_number "User".phone_number%TYPE
+	,med_doc "User".med_doc%TYPE
+	,sport_rank "User".sport_rank%TYPE
+	,birthday VARCHAR2);
 	TYPE is_regUser IS RECORD (
 user_id                 INTEGER,
    email                VARCHAR2(254),
@@ -479,6 +490,7 @@ user_id                 INTEGER,
    password             VARCHAR2(256)        
 );
 	FUNCTION GETUSERLOGINDATA(user_email in "User".email%TYPE) RETURN VARCHAR2;
+	FUNCTION GETUSERROLE(user_email in "User".email%TYPE) RETURN VARCHAR2;
 	PROCEDURE registerGuest(
 	email in "User".email%TYPE
     ,password in "User".password%TYPE
@@ -506,6 +518,24 @@ user_id                 INTEGER,
 END WORK_PACK;
 /
 CREATE OR REPLACE PACKAGE BODY WORK_PACK IS
+FUNCTION GETUSERROLE(user_email in "User".email%TYPE) RETURN VARCHAR2
+IS
+user_role "User".role_name_fk%TYPE;
+BEGIN
+IF GETUSERLOGINDATA(user_email)<>'0' THEN
+SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+SELECT role_name_fk INTO user_role FROM "User" WHERE email=user_email AND DELETED<>0;
+SELECT role_name INTO user_role FROM ROLE WHERE role_name=user_role AND DELETED<>0;
+COMMIT;
+ELSE
+user_role:='None';
+END IF;
+RETURN(user_role);
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RETURN('None');
+END GETUSERROLE;
+
 FUNCTION GETUSERLOGINDATA(user_email in "User".email%TYPE) RETURN VARCHAR2
 IS
 user_passwd "User".password%TYPE;
@@ -663,7 +693,7 @@ CREATE OR REPLACE TRIGGER deleteAdmin INSTEAD
 OF DELETE ON "Admin"
 DECLARE
 BEGIN
-	UPDATE "User" SET deleted = 0;
+	UPDATE "User" SET deleted = 0 WHERE "User".email = :old.email;
 END deleteAdmin;
 /
 CREATE OR REPLACE TRIGGER deleteCoach INSTEAD
@@ -739,4 +769,4 @@ BEGIN
   INTO   :new.line_id
   FROM   dual;
 END;
-/
+/ 

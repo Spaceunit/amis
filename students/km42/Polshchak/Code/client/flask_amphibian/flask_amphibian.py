@@ -1,27 +1,41 @@
 import os
+from connection_config import db_connect, db_user, db_password
 import time
 import random
 from flask import Flask, url_for, session, redirect, escape, request, logging, flash
 from flask_uploads import UploadSet, IMAGES
-from flask.ext.session import Session
+# from flask.ext.session import Session
+from flask_session import Session
 from flask import render_template
 from flask_wtf import FlaskForm, Form
 from flask_wtf.file import FileField, FileRequired, FileAllowed
 from wtforms import Form, StringField, TextAreaField, PasswordField, DateField, DateTimeField, validators
 from werkzeug.utils import secure_filename
 from passlib.hash import sha256_crypt
+from functools import wraps
 from passlib.hash import md5_crypt
 import cx_Oracle
 os.environ['NLS_LANG'] = 'American_America.AL32UTF8'
 UPLOAD_FOLDER = 'media/med_doc'
 ALLOWED_EXTENSIONS = set(['pdf', 'png', 'jpg', 'jpeg', 'gif', 'pdf'])
-db_user = os.environ.get('DBAAS_USER_NAME', 'POLSHCHAK')
-db_password = os.environ.get('DBAAS_USER_PASSWORD', 'Qwer1234')
-db_connect = os.environ.get('DBAAS_DEFAULT_CONNECT_DESCRIPTOR', "192.168.56.101:1521/xe")
+# db_user = os.environ.get('DBAAS_USER_NAME', 'POLSHCHAK')
+# db_password = os.environ.get('DBAAS_USER_PASSWORD', 'Qwer1234')
+# db_connect = os.environ.get('DBAAS_DEFAULT_CONNECT_DESCRIPTOR', "192.168.56.101:1521/xe")
 images = UploadSet('images', IMAGES)
 # SESSION_TYPE = 'cookie'
 
+def create_app(sess):
+    app = Flask(__name__)
+    app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+    app.config['SESSION_TYPE'] = 'filesystem'
+    app.secret_key = 'A0Zr98j/3yXR~XHH!jmN]LWX/,?RT'
+    app.debug = True
+    sess.init_app(app)
+    return app
+
+
 sess = Session()
+app = create_app(sess)
 
 INSERT_USER_VALUES = ('USER_ID', 'EMAIL', 'ROLE_NAME_FK', 'FIRST_NAME', 'SECOND_NAME', 'LAST_NAME', 'BIRTHDAY',
                         'REG_DAY', 'USER_ADDRESS', 'PHONE_NUMBER', 'MED_DOC', 'SPORT_RANK')
@@ -59,7 +73,6 @@ class UserInsertGenerator(InsertGenerator):
 
 class UserCreation:
     def __enter__(self):
-        # self.__db = cx_Oracle.Connection("hr/hrpwd@//localhost:1521/XE")
         self.__db = cx_Oracle.connect(db_user, db_password, db_connect)
         self.__cursor = self.__db.cursor()
         return self
@@ -81,65 +94,41 @@ class UserCreation:
             app.logger.info('PASSWORD OR LOGIN NOT MATCHED')
             return False
 
+    def get_user_role(self, login_candidate):
+        user_role = 'None'
+        try:
+            user_role = self.__cursor.callfunc('WORK_PACK.GETUSERROLE', cx_Oracle.STRING, [login_candidate])
+        except cx_Oracle.DatabaseError:
+            flash('ERROR')
+        return user_role
 
+    def get_user_fsl_name(self, login_candidate, role):
+        user_fsl = ()
+        try:
+            self.__cursor.execute("""SELECT FIRST_NAME, SECOND_NAME, LAST_NAME FROM "{0}" WHERE 
+                                                EMAIL='{1}' """.format(role, login_candidate))
+            user_fsl = self.__cursor.fetchone()
+        except cx_Oracle.DatabaseError:
+            flash('ERROR')
+        return user_fsl
 
-
-
-    def add_user(self, email, password, first_name, second_name, last_name, address, phone, med_doc, sport_rank, birthday):
-        # user_id = self.__cursor.var(cx_Oracle.NUMBER)
-        # self.__cursor.callproc("WORK_PACK.createUser", [(0, email, password, first_name, second_name, last_name, address, phone, ' ', sport_rank, birthday, 1)])
+    def add_user(self, email, password, first_name, second_name, last_name, address, phone, med_doc, sport_rank,
+                 birthday):
         try:
             self.__db.commit()
-            # print([email.replace("'", "''"), password.replace("'", "''"), first_name.replace("'", "''"), second_name.replace("'", "''"), last_name.replace("'", "''"), address.replace("'", "''"),
-            #                                                    phone.replace("'", "''"), med_doc.replace("'", "''"), sport_rank.replace("'", "''"), birthday.isoformat()])
-            # self.__cursor.callproc('WORK_PACK.REGISTERGUEST', [email.replace("'", "''"), password.replace("'", "''"), first_name.replace("'", "''"), second_name.replace("'", "''"), last_name.replace("'", "''"), address.replace("'", "''"),
-            #                                                    phone.replace("'", "''"), med_doc.replace("'", "''"), sport_rank.replace("'", "''"), birthday.isoformat()])
             self.__cursor.callproc('WORK_PACK.REGISTERGUEST', [email, password,
                                                                first_name,
                                                                second_name,
                                                                last_name, address,
                                                                phone, med_doc,
                                                                sport_rank, birthday.isoformat()])
-            # self.__cursor.callproc('WORK_PACK.REGISTERGUEST',
-            #                  ['yellowbox@example.com', '111111111', 'Vasyl', 'Ivanovich', 'Bondarenco', 'Koval', '38000',
-            #                   'images/1837647721/medDoc', 'Master', '25.10.1980'])
             self.__db.commit()
         except BaseException:
             flash('DB ERROR')
             pass
 
-        # there are no OUT parameters in Python, regular return here
-        # return user_id
-
-    # def get_employee_count(self, p_department_id):
-    #     l_count = self.__cursor.callfunc("PKG_HR.GET_EMPLOYEE_COUNT",
-    #                                      cx_Oracle.NUMBER, [p_department_id])
-    #     return l_count
-
-    # def find_employees(self, p_query):
-    #     # as it comes to all complex types we need to tell Oracle Client
-    #     # what type to expect from an OUT parameter
-    #     l_cur = self.__cursor.var(cx_Oracle.CURSOR)
-    #     l_query, l_emp = self.__cursor.callproc("PKG_HR.FIND_EMPLOYEES", [p_query, l_cur])
-    #     return list(l_emp)
-
 
 uc = UserCreation()
-
-
-
-
-
-def create_app():
-    app = Flask(__name__)
-    app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-    app.secret_key = 'A0Zr98j/3yX R~XHH!jmN]LWX/,?RT'
-    app.debug = True
-    sess.init_app(app)
-    return app
-
-
-app = create_app()
 
 
 @app.route('/')
@@ -239,13 +228,74 @@ def registration():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if request.method=='POST':
+    if request.method == 'POST':
         user_name = request.form['username']
         password_candidate = request.form['password']
         uc.__enter__()
         if not uc.get_user_login_data(user_name, password_candidate):
             error = 'Username or password is wrong'
+            uc.__exit__()
             return render_template('login.html', error=error)
+        else:
+            flash('You are log in', 'success')
+            session['logged_in'] = True
+            session['username'] = user_name
+            uc.__exit__()
+            return redirect(url_for('profile'))
+
+    return render_template('login.html')
+
+
+def is_logged_in(f):
+    @wraps(f)
+    def wrap(*args, **kwargs):
+        if 'logged_in' in session:
+            return f(*args, **kwargs)
+        else:
+            flash('Unauthorized, Please login', 'danger')
+            return redirect(url_for('login'))
+    return wrap
+
+
+@app.route('/profile')
+@is_logged_in
+def profile():
+    if 'logged_in' in session:
+        uc.__enter__()
+        user_role = uc.get_user_role(session['username'])
+        u_fsl = uc.get_user_fsl_name(session['username'], user_role)
+        session['user_role'] = user_role
+        uc.__exit__()
+        if user_role == 'None':
+            return redirect('logout')
+        # flash(u_fsl)
+        return render_template('profile.html', user_role=user_role, f_name=u_fsl[0], s_name=u_fsl[1], l_name=u_fsl[2])
+    else:
+        return redirect(url_for('index'))
+
+
+@app.route('/manage_emp')
+@is_logged_in
+def manage_emp():
+    if 'logged_in' in session:
+        if session['user_role'] == 'Admin':
+            uc.__enter__()
+            user_role = uc.get_user_role(session['username'])
+            session['user_role'] = user_role
+            uc.__exit__()
+            return render_template('manage_emp.html')
+        else:
+            return redirect(url_for('index'))
+    else:
+        return redirect(url_for('index'))
+
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash("You are now logged out", "success")
+    return redirect(url_for('login'))
 
 
 if __name__ == '__main__':
